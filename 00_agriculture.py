@@ -241,24 +241,47 @@ df_rice = df_agroinput[df_agroinput["CROP"] == "rice"].copy()
 df_tea = df_agroinput[df_agroinput["CROP"] == "tea"].copy()
 df_veg = df_agroinput[df_agroinput["CROP"] == "veg"].copy()
 
+agrochem_trend = df_agroinput[df_agroinput["AGROCHEM"].notna()].copy()
+agrochem_trend = agrochem_trend.sort_values("YEAR")
+
+if agrochem_trend.empty:
+    def agrochem_func(t):
+        return 0.0
+else:
+    if (agrochem_trend["YEAR"] == 2019).any:
+        agrochem_2019 = float(
+            agrochem_trend.loc[agrochem_trend["YEAR"] == 2019, "AGROCHEM"].iloc[0]
+        )
+    else:
+        a_ag, b_ag = linear_reg(agrochem_trend["YEAR"], agrochem_trend["AGROCHEM"])
+        agrochem_2019 = float(a_ag + b_ag * 2019.0)
+
+    agrochem_2050 = 0.5 * agrochem_2019
+
+    def agrochem_func(t: float) -> float:
+        val = agrochem_2019 + (agrochem_2050 - agrochem_2019) * ((t - 2019.0) / 31.0)
+        return max(0.0, float(val))
+
 # 水稲
 for (crop, cultivar), g in df_rice.groupby(["CROP", "CULTIVAR"]):
     g = g.sort_values("YEAR")
-    a, b = linear_reg(g["YEAR"], g["SYN"])
-    syn_2020 = a + b * 2020.0
-    syn_2050 = 0.7 * syn_2020
+    a_syn, b_syn = linear_reg(g["YEAR"], g["SYN"])
+    syn_2019 = a_syn + b_syn * 2019.0
+    syn_2050 = 0.7 * syn_2019
 
     def syn_func(t):
-        return syn_2020 + (syn_2050 - syn_2020) * ((t - 2020.0) / 30.0)
+        return syn_2019 + (syn_2050 - syn_2019) * ((t - 2019.0) / 31.0)
 
     n_req = g["N_REQ"].dropna().iloc[0] if g["N_REQ"].notna().any() else 0.0
+
     g_last = g.iloc[-1]
     others = {col: (0.0 if pd.isna(g_last[col]) else g_last[col])
-              for col in ["AGROCHEM", "DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
+              for col in ["DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
 
     for yr in years_future:
         syn = max(0.0, float(syn_func(yr)))
         org = max(0.0, n_req - syn)
+        agrochem = agrochem_func(float(yr))
         row = {
             "CITY": np.nan,
             "CROP": crop,
@@ -266,6 +289,7 @@ for (crop, cultivar), g in df_rice.groupby(["CROP", "CULTIVAR"]):
             "YEAR": yr,
             "SYN": syn,
             "ORG": org,
+            "AGROCHEM": agrochem,
         }
         row.update(others)
         unit_rows.append(row)
@@ -273,23 +297,25 @@ for (crop, cultivar), g in df_rice.groupby(["CROP", "CULTIVAR"]):
 # 茶
 for (city, crop, cultivar), g in df_tea.groupby(["CITY", "CROP", "CULTIVAR"]):
     g = g.sort_values("YEAR")
-    if 2020 not in g["YEAR"].values or 2050 not in g["YEAR"].values:
+    if 2019 not in g["YEAR"].values or 2050 not in g["YEAR"].values:
         continue
 
-    syn_2020 = g.loc[g["YEAR"] == 2020, "SYN"].iloc[0]
+    syn_2019 = g.loc[g["YEAR"] == 2019, "SYN"].iloc[0]
     syn_2050 = g.loc[g["YEAR"] == 2050, "SYN"].iloc[0]
 
     def syn_func(t):
-        return syn_2020 + (syn_2050 - syn_2020) * ((t - 2020.0) / 30.0)
+        return syn_2019 + (syn_2050 - syn_2019) * ((t - 2019.0) / 31.0)
 
     n_req = g["N_REQ"].dropna().iloc[0] if g["N_REQ"].notna().any() else 0.0
-    g_2020 = g[g["YEAR"] == 2020].iloc[0]
-    others = {col: (0.0 if pd.isna(g_2020[col]) else g_2020[col])
-              for col in ["AGROCHEM", "DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
+
+    g_2019 = g[g["YEAR"] == 2019].iloc[0]
+    others = {col: (0.0 if pd.isna(g_2019[col]) else g_2019[col])
+              for col in ["DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
 
     for yr in years_future:
         syn = max(0.0, float(syn_func(yr)))
         org = max(0.0, n_req - syn)
+        agrochem = agrochem_func(float(yr))
         row = {
             "CITY": city,
             "CROP": crop,
@@ -297,6 +323,7 @@ for (city, crop, cultivar), g in df_tea.groupby(["CITY", "CROP", "CULTIVAR"]):
             "YEAR": yr,
             "SYN": syn,
             "ORG": org,
+            "AGROCHEM": agrochem,
         }
         row.update(others)
         unit_rows.append(row)
@@ -304,21 +331,23 @@ for (city, crop, cultivar), g in df_tea.groupby(["CITY", "CROP", "CULTIVAR"]):
 # 野菜
 for (crop, cultivar), g in df_veg.groupby(["CROP", "CULTIVAR"]):
     g = g.sort_values("YEAR")
-    a, b = linear_reg(g["YEAR"], g["SYN"])
-    syn_2020 = a + b * 2020.0
-    syn_2050 = 0.7 * syn_2020
+    a_syn, b_syn = linear_reg(g["YEAR"], g["SYN"])
+    syn_2019 = a_syn + b_syn * 2019.0
+    syn_2050 = 0.7 * syn_2019
 
     def syn_func(t):
-        return syn_2020 + (syn_2050 - syn_2020) * ((t - 2020.0) / 30.0)
+        return syn_2019 + (syn_2050 - syn_2019) * ((t - 2019.0) / 31.0)
 
     n_req = g["N_REQ"].dropna().iloc[0] if g["N_REQ"].notna().any() else 0.0
+
     g_last = g.iloc[-1]
     others = {col: (0.0 if pd.isna(g_last[col]) else g_last[col])
-              for col in ["AGROCHEM", "DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
+              for col in ["DIESEL", "GASOL", "KEROS", "ENGOIL", "ELECT"]}
 
     for yr in years_future:
         syn = max(0.0, float(syn_func(yr)))
         org = max(0.0, n_req - syn)
+        agrochem = agrochem_func(float(yr))
         row = {
             "CITY": np.nan,
             "CROP": crop,
@@ -326,6 +355,7 @@ for (crop, cultivar), g in df_veg.groupby(["CROP", "CULTIVAR"]):
             "YEAR": yr,
             "SYN": syn,
             "ORG": org,
+            "AGROCHEM": agrochem,
         }
         row.update(others)
         unit_rows.append(row)
@@ -403,7 +433,7 @@ def make_wide(df, index_cols, label):
 
     wide = wide[desired_cols].copy()
 
-    input_cols = [c for c in wide.columns if any(
+    input_cols = [c for c in wide.columns if (
         c.startswith(prefix) for prefix in ["SYN_", "ORG_", "AGROCHEM_", "DIESEL_", "GASOL_", "KEROS_", "ENGOIL_", "ELECT_"]
     )]
     wide[input_cols] = wide[input_cols].round(2)
